@@ -1,45 +1,42 @@
-name: Semgrep Django
+name: Semgrep Django Managed SAST
+
 on:
   push:
-    branches: ["main", "master", "develop"]
+    branches: ["master", "main", "develop"]
   pull_request:
-    branches: ["main", "master", "develop"]
+    branches: ["master", "main", "develop"]
+  schedule:
+    - cron: "15 6 * * 2"
   workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write
+  actions: read
 
 jobs:
   semgrep:
+    name: Semgrep Django Managed SAST
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep:latest
+
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - run: semgrep scan --config p/python --config p/django --sarif --output semgrep.sarif . || true
-
-      - name: Fix long rule IDs
-        if: always()
+      - name: Run Semgrep managed scan
         run: |
-          python3 -c "
-          import json, hashlib
-          d = json.load(open('semgrep.sarif'))
-          for run in d.get('runs', []):
-              m = {}
-              for r in run.get('tool', {}).get('driver', {}).get('rules', []):
-                  if len(r.get('id', '')) > 255:
-                      new = r['id'][:238] + '_' + hashlib.sha256(r['id'].encode()).hexdigest()[:16]
-                      m[r['id']] = new
-                      r['id'] = new
-              for res in run.get('results', []):
-                  if res.get('ruleId') in m:
-                      res['ruleId'] = m[res['ruleId']]
-          json.dump(d, open('semgrep.sarif', 'w'))
-          "
+          semgrep ci \
+            --sarif \
+            --output semgrep.sarif
 
-      - uses: github/codeql-action/upload-sarif@v4
+      - name: Upload SARIF to GitHub Code Scanning
         if: always()
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
+          category: semgrep-django-managed
